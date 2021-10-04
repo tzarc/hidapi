@@ -378,8 +378,8 @@ struct rd_main_item_node {
 	int FirstBit; /* Position of first bit in report (counting from 0) */
 	int LastBit; /* Position of last bit in report (counting from 0) */
 	rd_node_type TypeOfNode; /* Information if caps index refers to the array of button caps, value caps,
-                               or if the node is just a padding element to fill unused bit positions.
-                               The node can also be a collection node without any bits in the report. */
+	                            or if the node is just a padding element to fill unused bit positions.
+	                            The node can also be a collection node without any bits in the report. */
 	int CapsIndex; /* Index in the array of caps */
 	int CollectionIndex; /* Index in the array of link collections */
 	rd_main_items MainItemType; /* Input, Output, Feature, Collection or Collection End */
@@ -1546,18 +1546,18 @@ static struct rd_main_item_node * rd_search_main_item_list_for_bit_position(int 
  *  This reconstructed report descriptor is logical identical to the real report descriptor,
  *  but not byte wise identical.
  *
- * @param      dev       Device structure needed - only used for error reporting.
  * @param[in]  pp_data   Pointer to the preparsed data structure to read.
  * @param      buf       Pointer to the buffer where the report descriptor should be stored.
  * @param[in]  buf_size  Size of the buffer.
+ * @param[out] err_out   String used for error reporting (returned values is non-owning).
  *
  * @return Returns size of reconstructed report descriptor if successful, -1 for error.
  */
-static int rd_reconstructor(hid_device *dev, PHIDP_PREPARSED_DATA pp_data, unsigned char *buf, size_t buf_size) {
-
+static int rd_reconstructor(PHIDP_PREPARSED_DATA pp_data, unsigned char *buf, size_t buf_size, wchar_t const **err_out) {
 	// Check if MagicKey is correct, to ensure that pp_data points to an valid preparse data structure
-	if (strncmp(pp_data->MagicKey, "HidP KDR", 8)) {
-		register_error_msg(dev, L"pp_data did not point to valid HIDP_PREPARSED_DATA struct");
+	if (memcmp(pp_data->MagicKey, "HidP KDR", 8) != 0) {
+		if (err_out)
+			*err_out = L"pp_data did not point to valid HIDP_PREPARSED_DATA struct";
 		return -1;
 	}
 
@@ -1590,10 +1590,10 @@ static int rd_reconstructor(hid_device *dev, PHIDP_PREPARSED_DATA pp_data, unsig
 	for (HIDP_REPORT_TYPE rt_idx = 0; rt_idx < NUM_OF_HIDP_REPORT_TYPES; rt_idx++) {
 		for (USHORT caps_idx = pp_data->caps_info[rt_idx].FirstCap; caps_idx < pp_data->caps_info[rt_idx].LastCap; caps_idx++) {
 			int first_bit, last_bit;
-			first_bit = (pp_data->caps[caps_idx].BytePosition - 1) * 8 +
-						    pp_data->caps[caps_idx].BitPosition;
-			last_bit = first_bit + pp_data->caps[caps_idx].ReportSize *
-						            pp_data->caps[caps_idx].ReportCount - 1;
+			first_bit = (pp_data->caps[caps_idx].BytePosition - 1) * 8
+			           + pp_data->caps[caps_idx].BitPosition;
+			last_bit = first_bit + pp_data->caps[caps_idx].ReportSize
+			                     * pp_data->caps[caps_idx].ReportCount - 1;
 			if (coll_bit_range[pp_data->caps[caps_idx].LinkCollection][pp_data->caps[caps_idx].ReportID][rt_idx]->FirstBit == -1 ||
 				coll_bit_range[pp_data->caps[caps_idx].LinkCollection][pp_data->caps[caps_idx].ReportID][rt_idx]->FirstBit > first_bit) {
 				coll_bit_range[pp_data->caps[caps_idx].LinkCollection][pp_data->caps[caps_idx].ReportID][rt_idx]->FirstBit = first_bit;
@@ -1954,7 +1954,6 @@ static int rd_reconstructor(hid_device *dev, PHIDP_PREPARSED_DATA pp_data, unsig
 	{
 		int rt_idx = main_item_list->MainItemType;
 		int	caps_idx = main_item_list->CapsIndex;
-		UCHAR report_id = main_item_list->ReportID;
 		if (main_item_list->MainItemType == rd_collection) {
 			if (last_usage_page != link_collection_nodes[main_item_list->CollectionIndex].LinkUsagePage) {
 				// Write "Usage Page" at the begin of a collection - except it refers the same table as wrote last 
@@ -1970,7 +1969,7 @@ static int rd_reconstructor(hid_device *dev, PHIDP_PREPARSED_DATA pp_data, unsig
 				rd_write_short_item(rd_local_usage, link_collection_nodes[main_item_list->CollectionIndex].LinkUsage, &byte_list);
 			}
 			// Write begin of "Collection" 
-		    rd_write_short_item(rd_main_collection, link_collection_nodes[main_item_list->CollectionIndex].CollectionType, &byte_list);
+			rd_write_short_item(rd_main_collection, link_collection_nodes[main_item_list->CollectionIndex].CollectionType, &byte_list);
 		}
 		else if (main_item_list->MainItemType == rd_collection_end) {
 			// Write "End Collection"
@@ -1986,7 +1985,6 @@ static int rd_reconstructor(hid_device *dev, PHIDP_PREPARSED_DATA pp_data, unsig
 			}
 			else if (main_item_list->CapsIndex != 0) {
 				// Write "Usage Page" inside of a main item delmiter section
-				int caps_idx = main_item_list->CapsIndex;
 				if (pp_data->caps[caps_idx].UsagePage != last_usage_page) {
 					rd_write_short_item(rd_global_usage_page, pp_data->caps[caps_idx].UsagePage, &byte_list);
 					last_usage_page = pp_data->caps[caps_idx].UsagePage;
@@ -2000,7 +1998,6 @@ static int rd_reconstructor(hid_device *dev, PHIDP_PREPARSED_DATA pp_data, unsig
 				// Write aliased collection "Usage"
 				rd_write_short_item(rd_local_usage, link_collection_nodes[main_item_list->CollectionIndex].LinkUsage, &byte_list);
 			}  if (main_item_list->CapsIndex != 0) {
-				int caps_idx = main_item_list->CapsIndex;
 				// Write aliased main item range from "Usage Minimum" to "Usage Maximum"
 				if (pp_data->caps[caps_idx].IsRange) {
 					rd_write_short_item(rd_local_usage_minimum, pp_data->caps[caps_idx].Range.UsageMin, &byte_list);
@@ -2349,9 +2346,9 @@ static int rd_reconstructor(hid_device *dev, PHIDP_PREPARSED_DATA pp_data, unsig
 	// Free one dimensional arrays
 	free(coll_begin_lookup);
 	free(coll_end_lookup);
-    free(coll_levels);
-    free(coll_number_of_direct_childs);
-	    
+	free(coll_levels);
+	free(coll_number_of_direct_childs);
+
 	// Copy report temporary descriptor list into buf array and free list
 	unsigned int byte_list_len = 0;
 	while ((byte_list != NULL))
@@ -2368,11 +2365,12 @@ static int rd_reconstructor(hid_device *dev, PHIDP_PREPARSED_DATA pp_data, unsig
 	}
 
 	if (byte_list_len > buf_size) {
-		register_error_msg(dev, L"Buffer to small for the generated report descriptor");
+	if (err_out)
+		*err_out = L"Buffer to small for the generated report descriptor";
 		return -1;
 	}
 	else {
-		return byte_list_len;
+		return (int) byte_list_len;
 	}
 }
 
@@ -2385,7 +2383,13 @@ int HID_API_EXPORT_CALL hid_get_report_descriptor(hid_device *dev, unsigned char
 		return -1;
 	}
 	
-	int res = rd_reconstructor(dev, pp_data, buf, buf_size);
+	const wchar_t *err_str = NULL;
+
+	int res = rd_reconstructor(pp_data, buf, buf_size, &err_str);
+
+	if (err_str) {
+		register_error_msg(dev, err_str);
+	}
 
 	HidD_FreePreparsedData(pp_data);
 
